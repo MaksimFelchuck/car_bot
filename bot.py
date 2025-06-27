@@ -10,6 +10,7 @@ from telegram.ext import (
 )
 
 import os
+import httpx
 
 TOKEN = os.environ["TOKEN"]
 
@@ -86,37 +87,49 @@ class CarBot:
         await update.callback_query.message.edit_text(f"🎯 {question_text}", reply_markup=reply_markup)
 
     async def handle_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        query = update.callback_query
-        query.answer()
+        msg = "Произошла ошибка. Пожалуйста, попробуйте позже."
+        try:
+            query = update.callback_query
+            query.answer()
 
-        # Извлекаем индекс вопроса из callback_data (например, 'answer_0', 'answer_1' и т.д.)
-        callback_data = query.data
+            # Извлекаем индекс вопроса из callback_data (например, 'answer_0', 'answer_1' и т.д.)
+            callback_data = query.data
 
-        # Если это команда для старта теста
-        if callback_data == 'start_test':
-            return await self.start_test(update, context)
+            # Если это команда для старта теста
+            if callback_data == 'start_test':
+                return await self.start_test(update, context)
 
-        # Если это команда для получения ID
-        # elif callback_data == 'get_id':
-        #     return await self.get_id(update, context)
+            # Если это команда для получения ID
+            # elif callback_data == 'get_id':
+            #     return await self.get_id(update, context)
 
-        answer_index = callback_data.split('_')[-1]
-        answer_index = int(answer_index)
-        user_id = update.effective_user.id
+            answer_index = callback_data.split('_')[-1]
+            answer_index = int(answer_index)
+            user_id = update.effective_user.id
 
-        # Сохраняем ответ
-        if user_id not in self.user_answers:
-            self.user_answers[user_id] = []
-        self.user_answers[user_id].append(ANSWER_OPTIONS[len(self.user_answers[user_id])][answer_index])
+            # Сохраняем ответ
+            if user_id not in self.user_answers:
+                self.user_answers[user_id] = []
+            self.user_answers[user_id].append(ANSWER_OPTIONS[len(self.user_answers[user_id])][answer_index])
 
-        # Переход к следующему вопросу
-        if len(self.user_answers[user_id]) < len(QUESTIONS):
-            await self.send_buttons(update, len(self.user_answers[user_id]))
-            return len(self.user_answers[user_id])
-        else:
-            # Завершаем опрос и показываем результаты
-            summary = "\n".join([f"{QUESTIONS[i][0]}: {self.user_answers[user_id][i]}" for i in range(len(QUESTIONS))])
-            await query.edit_message_text(f"Спасибо за участие! Ваши ответы:\n{summary}")
+            # Переход к следующему вопросу
+            if len(self.user_answers[user_id]) < len(QUESTIONS):
+                await self.send_buttons(update, len(self.user_answers[user_id]))
+                return len(self.user_answers[user_id])
+            else:
+                # Завершаем опрос и показываем результаты
+                summary = "\n".join([f"{QUESTIONS[i][0]}: {self.user_answers[user_id][i]}" for i in range(len(QUESTIONS))])
+                await query.edit_message_text(f"Спасибо за участие! Ваши ответы:\n{summary}")
+                return ConversationHandler.END
+        except httpx.NetworkError as e:
+            # Обработка сетевой ошибки
+            print(f"Сетевая ошибка: {e}")
+            await update.callback_query.message.reply_text(msg)
+            return ConversationHandler.END
+        except Exception as e:
+            # Логируем другие ошибки
+            print(f"Неизвестная ошибка: {e}")
+            await update.callback_query.message.reply_text(msg)
             return ConversationHandler.END
 
     async def get_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
