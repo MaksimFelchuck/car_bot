@@ -71,7 +71,7 @@ custom_fields = {
         "field_id": 724009,
         "enum_ids": {
             "TG": 1464281,
-            "WhatsApp": 1464283,
+            "Whatsapp": 1464283,
             "Телефон": 1464285,
         },
     },
