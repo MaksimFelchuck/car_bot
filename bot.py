@@ -95,12 +95,12 @@ class CarBot:
         self.app = ApplicationBuilder().token(token).build()
         self.user_answers = {}
 
-
         # Разворачиваем ConversationHandler для вопросов
         self.conversation_handler = ConversationHandler(
             entry_points=[
                 CommandHandler("start", self.start),
-                CallbackQueryHandler(self.handle_answer, pattern="^start_test$")
+                MessageHandler(filters.Regex("^/start$"), self.start),  # на всякий случай
+                CallbackQueryHandler(self.start_test, pattern="^start_test$"),
             ],
             states={
                 QUESTION_1: [
@@ -127,20 +127,18 @@ class CarBot:
             },
             fallbacks=[CommandHandler("cancel", self.cancel)],
         )
-        self.app.add_handler(self.conversation_handler)
+        self.app.add_handlers([self.conversation_handler])
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # Приветственное сообщение и кнопки для старта теста
         keyboard = [
             [InlineKeyboardButton("Начать тест", callback_data="start_test")],
-            # [InlineKeyboardButton("Мой ID", callback_data='get_id')],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Добро пожаловать в авто-опросник! Нажмите на кнопку, чтобы начать.",
             reply_markup=reply_markup,
         )
-        return ConversationHandler.END
 
     async def start_test(
         self,
@@ -154,18 +152,27 @@ class CarBot:
         await self.send_buttons(update, 0)
         return QUESTION_1
 
+    def chunk_options(self, options, chunk_size=3):
+        """Разделяет список вариантов на несколько подсписков по chunk_size"""
+        return [options[i:i + chunk_size] for i in range(0, len(options), chunk_size)]
+
     async def send_buttons(self, update: Update, question_index: int) -> None:
         # Отправка кнопок с вариантами ответов
         question_text, _ = QUESTIONS[question_index]
         options = ANSWER_OPTIONS[question_index]
 
-        # Формируем кнопки для вариантов ответа
+        # Разделение кнопок на несколько строк (по 3 кнопки на строку)
+        chunks = self.chunk_options(options, chunk_size=3)
+
+        # Формируем кнопки для вариантов ответа в несколько строк
         keyboard = [
             [
                 InlineKeyboardButton(option, callback_data=f"answer_{index}")
-                for index, option in enumerate(options)
+                for index, option in enumerate(chunk)
             ]
+            for chunk in chunks
         ]
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.callback_query.message.edit_text(
             f"🎯 {question_text}", reply_markup=reply_markup
@@ -186,10 +193,6 @@ class CarBot:
             if callback_data == "start_test":
                 return await self.start_test(update, context)
 
-            # Если это команда для получения ID
-            # elif callback_data == 'get_id':
-            #     return await self.get_id(update, context)
-
             answer_index = callback_data.split("_")[-1]
             answer_index = int(answer_index)
             user_id = update.effective_user.id
@@ -206,9 +209,8 @@ class CarBot:
                 await self.send_buttons(update, len(self.user_answers[user_id]))
                 return len(self.user_answers[user_id])
             else:
-
                 await query.edit_message_text(
-                    "📱Введите номер телефона в формате +79998887766:"
+                    "📱Введите номер телефона в формате (+79998887766):"
                 )
                 return WAIT_PHONE  # ⬅ Переход к ожиданию номера
         except httpx.NetworkError as e:
@@ -235,10 +237,9 @@ class CarBot:
                     for i in range(len(QUESTIONS))
                 ]
             ):
-                otstoinik = f"ОТСТОЙНИК!"
-
-            else:
                 otstoinik = f"РАБОТАЕМ!"
+            else:
+                otstoinik = f"ОТСТОЙНИК!"
 
             # Здесь можно отправить данные в CRM
             await update.message.reply_text(
@@ -251,21 +252,16 @@ class CarBot:
             )
             return WAIT_PHONE
 
-    async def send_to_crm(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        await update.callback_query.message.edit_text(
-            "Тут я отправляю в срм запрос, нужно реализовать..."
-        )
-
-    async def get_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        # Отправляем ID пользователя
-        user_id = update.effective_user.id
-        await update.callback_query.message.edit_text(f"Ваш ID: {user_id}")
-
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("Опрос отменен.")
         return ConversationHandler.END
+
+    # async def send_to_crm(
+    #     self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    # ) -> None:
+    #     await update.callback_query.message.edit_text(
+    #         "Тут я отправляю в срм запрос, нужно реализовать..."
+    #     )
 
     def run(self):
         self.app.add_handler(self.conversation_handler)
@@ -274,5 +270,5 @@ class CarBot:
 
 
 if __name__ == "__main__":
-    bot = CarBot(TOKEN)
+    bot = CarBot(TOKEN.replace("'", ""))
     bot.run()
