@@ -11,9 +11,71 @@ from telegram.ext import (
 
 import os
 import httpx
+from crm import AmoCrmFetcher
+import re
 
 TOKEN = os.environ["TOKEN"]
-import re
+
+
+class Pipline:
+    target_pipline = 8868612  # (, "ЦЕЛЕВАЯ ЗАЯВКА")
+    tresh_pipline = 8868609  # (, "ОТСТОЙНИК")
+
+
+PIPLINE_ID = 2776459
+
+
+custom_fields = {
+    0: {
+        "field_id": 724001,
+        "enum_ids": {
+            "до 1,5 млн": 1464257,
+            "1,5-3 млн": 1464259,
+            "3-5 млн": 1464261,
+            "более 5 млн": 1464263,
+        },
+    },
+    1: {
+        "field_id": 723997,
+        "enum_ids": {
+            "до 10 дней": 1464249,
+            "до 1 мес": 1464251,
+            "до 2х мес": 1464253,
+            "до 6 мес": 1464255,
+        },
+    },
+    2: {
+        "field_id": 724003,
+        "enum_ids": {
+            "Да": 1464265,
+            "Нет": 1464267,
+        },
+    },
+    3: {
+        "field_id": 724005,
+        "enum_ids": {
+            "Корейские": 1464269,
+            "Европейские": 1464271,
+            "Американские": 1464273,
+        },
+    },
+    4: {
+        "field_id": 724007,
+        "enum_ids": {
+            "ЦФО": 1464275,
+            "Сибирь": 1464277,
+            "ДВ": 1464279,
+        },
+    },
+    5: {
+        "field_id": 724009,
+        "enum_ids": {
+            "TG": 1464281,
+            "WhatsApp": 1464283,
+            "Телефон": 1464285,
+        },
+    },
+}
 
 
 def validate_phone(phone: str) -> bool:
@@ -21,8 +83,16 @@ def validate_phone(phone: str) -> bool:
     return bool(pattern.match(phone))
 
 
-
-QUESTION_1, QUESTION_2, QUESTION_3, QUESTION_4, QUESTION_5, QUESTION_6, WAIT_PHONE, RESULT = range(8)
+(
+    QUESTION_1,
+    QUESTION_2,
+    QUESTION_3,
+    QUESTION_4,
+    QUESTION_5,
+    QUESTION_6,
+    WAIT_PHONE,
+    RESULT,
+) = range(8)
 
 # Описание вопросов и ключевых значений
 QUESTIONS = [
@@ -94,12 +164,15 @@ class CarBot:
     def __init__(self, token: str):
         self.app = ApplicationBuilder().token(token).build()
         self.user_answers = {}
+        self.crm = AmoCrmFetcher()
 
         # Разворачиваем ConversationHandler для вопросов
         self.conversation_handler = ConversationHandler(
             entry_points=[
                 CommandHandler("start", self.start),
-                MessageHandler(filters.Regex("^/start$"), self.start),  # на всякий случай
+                MessageHandler(
+                    filters.Regex("^/start$"), self.start
+                ),  # на всякий случай
                 CallbackQueryHandler(self.start_test, pattern="^start_test$"),
             ],
             states={
@@ -154,7 +227,7 @@ class CarBot:
 
     def chunk_options(self, options, chunk_size=3):
         """Разделяет список вариантов на несколько подсписков по chunk_size"""
-        return [options[i:i + chunk_size] for i in range(0, len(options), chunk_size)]
+        return [options[i : i + chunk_size] for i in range(0, len(options), chunk_size)]
 
     async def send_buttons(self, update: Update, question_index: int) -> None:
         # Отправка кнопок с вариантами ответов
@@ -237,14 +310,43 @@ class CarBot:
                     for i in range(len(QUESTIONS))
                 ]
             ):
-                otstoinik = f"РАБОТАЕМ!"
+                status_id = Pipline.target_pipline
             else:
-                otstoinik = f"ОТСТОЙНИК!"
+                status_id = Pipline.tresh_pipline
+            custom_fields_data = [
+                {
+                    "field_id": custom_fields[i]["field_id"],
+                    "values": [
+                        {
+                            "enum_id": custom_fields[i]["enum_ids"][
+                                self.user_answers[user_id][i]
+                            ]
+                        }
+                    ],
+                }
+                for i in range(len(QUESTIONS))
+            ]
+            custom_fields_data.append(
+                {
+                    "field_id": 724011,
+                    "values": [{"value": phone}],
+                }
+            )
 
             # Здесь можно отправить данные в CRM
             await update.message.reply_text(
-                f"Спасибо! Наш специалист свяжется с вами в ближайшее время. {otstoinik}\n[CRM] Данные пользователя {user_id}: {self.user_answers.get(user_id)} | Телефон: {phone}"
+                f"Спасибо! Наш специалист свяжется с вами в ближайшее время."
             )
+
+            # Отправляем лида в срм
+            await self.crm.create_lead_full(
+                name="",
+                pipeline_id=PIPLINE_ID,
+                status_id=status_id,
+                # price=5_000_000,
+                custom_fields=custom_fields_data,  #: dict[int, Union[str, int, list[str]]]
+            )
+
             return ConversationHandler.END
         else:
             await update.message.reply_text(
@@ -270,5 +372,5 @@ class CarBot:
 
 
 if __name__ == "__main__":
-    bot = CarBot(TOKEN.replace("'", ""))
+    bot = CarBot(TOKEN)
     bot.run()
