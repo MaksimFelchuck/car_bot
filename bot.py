@@ -230,21 +230,18 @@ class CarBot:
         return [options[i : i + chunk_size] for i in range(0, len(options), chunk_size)]
 
     async def send_buttons(self, update: Update, question_index: int) -> None:
-        # Отправка кнопок с вариантами ответов
         question_text, _ = QUESTIONS[question_index]
         options = ANSWER_OPTIONS[question_index]
 
-        # Разделение кнопок на несколько строк (по 3 кнопки на строку)
-        chunks = self.chunk_options(options, chunk_size=3)
-
-        # Формируем кнопки для вариантов ответа в несколько строк
-        keyboard = [
-            [
-                InlineKeyboardButton(option, callback_data=f"answer_{index}")
-                for index, option in enumerate(chunk)
-            ]
-            for chunk in chunks
-        ]
+        # Формируем кнопки с правильными callback_data
+        keyboard = []
+        for idx, option in enumerate(options):
+            row = idx // 3  # 3 кнопки в строке
+            if len(keyboard) <= row:
+                keyboard.append([])
+            keyboard[row].append(
+                InlineKeyboardButton(option, callback_data=f"answer_{idx}")
+            )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.callback_query.message.edit_text(
