@@ -3,8 +3,8 @@ import asyncio
 import os
 
 AMO_ACCOUNT = os.environ["AMO_ACCOUNT"]
-AMO_TOKEN = os.environ["AMO_TOKEN"]
-AMO_SECRET_KEY = os.environ["AMO_SECRET_KEY"]
+# AMO_TOKEN = os.environ["AMO_TOKEN"]
+# AMO_SECRET_KEY = os.environ["AMO_SECRET_KEY"]
 AMO_LONG_TOKEN = os.environ["AMO_LONG_TOKEN"]
 
 
