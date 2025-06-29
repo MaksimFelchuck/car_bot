@@ -13,6 +13,7 @@ import os
 import httpx
 from crm import AmoCrmFetcher
 import re
+from pathlib import Path
 
 TOKEN = os.environ["TOKEN"]
 
@@ -208,8 +209,27 @@ class CarBot:
             [InlineKeyboardButton("Начать тест", callback_data="start_test")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        image_path = Path("photo/car.jpg")
+        photo = str(image_path)  # если файл сохранён локально
+
+        user_id = update.effective_user.id
+
+        if user_id in self.user_answers:
+            # Здесь можно отправить данные в CRM
+            await update.message.reply_text(
+                f"Спасибо, что прошли опрос, наш специалист свяжется с вами!"
+            )
+            return ConversationHandler.END
+        # Отправка фото с подписью и клавиатурой
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=photo,
+            # caption="Добро пожаловать в авто-опросник!",
+            # reply_markup=reply_markup
+        )
+
         await update.message.reply_text(
-            "Добро пожаловать в авто-опросник! Нажмите на кнопку, чтобы начать.",
+            "Добро пожаловать в авто-опросник!\nЧтобы лучшим образом подобрать для вас автомобиль из Южной Кореи, пожалуйста ответьте на 6 коротких вопросов.\nЧтобы начать, нажмите 'Начать тест' в диалоговом окне.",
             reply_markup=reply_markup,
         )
 
@@ -259,13 +279,15 @@ class CarBot:
             # Извлекаем индекс вопроса из callback_data (например, 'answer_0', 'answer_1' и т.д.)
             callback_data = query.data
 
+            user_id = update.effective_user.id
+
             # Если это команда для старта теста
             if callback_data == "start_test":
+
                 return await self.start_test(update, context)
 
             answer_index = callback_data.split("_")[-1]
             answer_index = int(answer_index)
-            user_id = update.effective_user.id
 
             # Сохраняем ответ
             if user_id not in self.user_answers:
