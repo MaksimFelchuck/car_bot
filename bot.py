@@ -271,7 +271,7 @@ class CarBot:
     async def handle_answer(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
-        msg = "Произошла ошибка. Пожалуйста, попробуйте позже."
+        msg = "Произошла ошибка. Пожалуйста, нажмите /start что бы попробовать ещё раз."
         try:
             query = update.callback_query
             await query.answer()
@@ -321,14 +321,15 @@ class CarBot:
     ) -> int:
         phone = update.message.text.strip()
         user_id = update.effective_user.id
-
+        ans = self.user_answers[user_id]
+        if not ans:
+            print(f"Не нашлось ответов для {user_id=}")
+            await update.message.reply_text(
+                "Не получилось сохранить ответы, пожалуйста нажмите /start для повторного прохождения опроса."
+            )
+            return ConversationHandler.END
         if validate_phone(phone):
-            if all(
-                [
-                    self.user_answers[user_id][i] in GOOD_QUESTION_LIST
-                    for i in range(len(QUESTIONS))
-                ]
-            ):
+            if all([ans[i] in GOOD_QUESTION_LIST for i in range(len(QUESTIONS))]):
                 status_id = Pipline.target_pipline
             else:
                 status_id = Pipline.tresh_pipline
