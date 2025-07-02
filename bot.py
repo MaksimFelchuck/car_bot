@@ -321,7 +321,7 @@ class CarBot:
     ) -> int:
         phone = update.message.text.strip()
         user_id = update.effective_user.id
-        ans = self.user_answers[user_id]
+        ans = self.user_answers.get(user_id)
         if not ans:
             print(f"Не нашлось ответов для {user_id=}")
             await update.message.reply_text(
