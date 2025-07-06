@@ -14,6 +14,7 @@ import httpx
 from crm import AmoCrmFetcher
 import re
 from pathlib import Path
+import asyncio
 
 TOKEN = os.environ["TOKEN"]
 
@@ -427,12 +428,13 @@ class CarBot:
 
     def run(self):
         self.app.add_handler(self.conversation_handler)
-        # Установка меню команд
-        self.app.bot.set_my_commands(
-            [
+        # Установка меню команд через стандартный event loop
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(
+            self.app.bot.set_my_commands([
                 BotCommand("start", "Запустить бота"),
                 BotCommand("cancel", "Отменить опрос"),
-            ]
+            ])
         )
         print("Бот запущен...")
         self.app.run_polling()
