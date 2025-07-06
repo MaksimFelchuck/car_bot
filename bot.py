@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -203,64 +203,10 @@ class CarBot:
             fallbacks=[CommandHandler("cancel", self.cancel)],
         )
         self.app.add_handlers([self.conversation_handler])
-        
-        # Добавляем обработчик для меню
-        self.app.add_handler(CommandHandler("menu", self.show_menu))
-        self.app.add_handler(CallbackQueryHandler(self.handle_menu, pattern="^(restart|cancel_survey)$"))
 
-
-
-    async def show_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Показывает меню с опциями"""
-        keyboard = [
-            [InlineKeyboardButton("🔄 Начать опрос заново", callback_data="restart")],
-            [InlineKeyboardButton("❌ Отменить опрос", callback_data="cancel_survey")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            "📋 Меню бота:\nВыберите действие:",
-            reply_markup=reply_markup
-        )
-
-    async def handle_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Обрабатывает нажатия на кнопки меню"""
-        query = update.callback_query
-        await query.answer()
-        
-        if query.data == "restart":
-            user_id = update.effective_user.id
-            
-            # Проверяем, завершил ли пользователь опрос ранее
-            if user_id in self.completed_surveys:
-                await query.edit_message_text(
-                    "Вы уже завершили опрос. Наш специалист свяжется с вами в ближайшее время."
-                )
-                return ConversationHandler.END
-            
-            # Очищаем старые ответы пользователя
-            if user_id in self.user_answers:
-                del self.user_answers[user_id]
-            
-            # Начинаем опрос заново - показываем приветственное сообщение
-            await self.show_welcome_message(update, context)
-            # Возвращаемся к начальному состоянию ConversationHandler
-            return ConversationHandler.END
-        
-        elif query.data == "cancel_survey":
-            # Отменяем опрос
-            user_id = update.effective_user.id
-            if user_id in self.user_answers:
-                del self.user_answers[user_id]
-            
-            await query.edit_message_text("❌ Опрос отменен. Нажмите /start для начала нового опроса.")
-            return ConversationHandler.END
-        
-        return ConversationHandler.END
-
-
-
-    async def show_welcome_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def show_welcome_message(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Показывает приветственное сообщение с картинкой и кнопкой начала теста"""
         keyboard = [
             [InlineKeyboardButton("Начать тест", callback_data="start_test")],
@@ -288,6 +234,7 @@ class CarBot:
             )
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        context.chat_data.clear()
         user_id = update.effective_user.id
 
         # Проверяем, завершил ли пользователь опрос ранее
@@ -306,10 +253,8 @@ class CarBot:
                     f"Спасибо, что прошли опрос, наш специалист свяжется с вами!"
                 )
                 return ConversationHandler.END
-        
         # Показываем приветственное сообщение
         await self.show_welcome_message(update, context)
-        
         return ConversationHandler.END
 
     async def start_test(
@@ -319,18 +264,18 @@ class CarBot:
     ) -> int:
         # Начало теста: очистка старых данных и первый вопрос
         user_id = update.effective_user.id
-        
+
         # Проверяем, завершил ли пользователь опрос ранее
         if user_id in self.completed_surveys:
             await update.callback_query.message.edit_text(
                 "Вы уже завершили опрос. Наш специалист свяжется с вами в ближайшее время."
             )
             return ConversationHandler.END
-        
+
         # Очищаем старые ответы пользователя
         if user_id in self.user_answers:
             del self.user_answers[user_id]
-        
+
         question_text, _ = QUESTIONS[0]
         await update.callback_query.message.edit_text(f"🎯 {question_text}")
         await self.send_buttons(update, 0)
@@ -443,12 +388,10 @@ class CarBot:
                     "values": [{"value": phone}],
                 }
             )
-
             # Здесь можно отправить данные в CRM
             await update.message.reply_text(
                 f"Спасибо! Наш специалист свяжется с вами в ближайшее время."
             )
-
             # Отправляем лида в срм
             await self.crm.create_lead_full(
                 name="",
@@ -457,14 +400,11 @@ class CarBot:
                 # price=5_000_000,
                 custom_fields=custom_fields_data,  #: dict[int, Union[str, int, list[str]]]
             )
-
-            # Добавляем пользователя в множество завершенных опросов
+            # Добавляем пользователя в множество завершённых опросов
             self.completed_surveys.add(user_id)
-            
             # Удаляем ответы пользователя после успешной отправки в CRM
             if user_id in self.user_answers:
                 del self.user_answers[user_id]
-
             return ConversationHandler.END
         else:
             await update.message.reply_text(
@@ -473,22 +413,27 @@ class CarBot:
             return WAIT_PHONE
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        await update.message.reply_text("Опрос отменен.")
         user_id = update.effective_user.id
+        # Если пользователь уже завершил опрос, не позволяем отменить
+        if user_id in self.completed_surveys:
+            await update.message.reply_text(
+                "Вы уже завершили опрос. Наш специалист свяжется с вами в ближайшее время."
+            )
+            return ConversationHandler.END
+        await update.message.reply_text("Опрос отменен.")
         if user_id in self.user_answers:
             self.user_answers.pop(user_id)
-        # Не удаляем из completed_surveys, если пользователь уже завершил опрос
         return ConversationHandler.END
-
-    # async def send_to_crm(
-    #     self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    # ) -> None:
-    #     await update.callback_query.message.edit_text(
-    #         "Тут я отправляю в срм запрос, нужно реализовать..."
-    #     )
 
     def run(self):
         self.app.add_handler(self.conversation_handler)
+        # Установка меню команд
+        self.app.bot.set_my_commands(
+            [
+                BotCommand("start", "Запустить бота"),
+                BotCommand("cancel", "Отменить опрос"),
+            ]
+        )
         print("Бот запущен...")
         self.app.run_polling()
 
