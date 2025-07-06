@@ -165,6 +165,7 @@ class CarBot:
     def __init__(self, token: str):
         self.app = ApplicationBuilder().token(token).build()
         self.user_answers = {}
+        self.completed_surveys = set()  # Множество пользователей, завершивших опрос
         self.crm = AmoCrmFetcher()
 
         # Разворачиваем ConversationHandler для вопросов
@@ -202,17 +203,99 @@ class CarBot:
             fallbacks=[CommandHandler("cancel", self.cancel)],
         )
         self.app.add_handlers([self.conversation_handler])
+        
+        # Добавляем обработчик для меню
+        self.app.add_handler(CommandHandler("menu", self.show_menu))
+        self.app.add_handler(CallbackQueryHandler(self.handle_menu, pattern="^(restart|cancel_survey)$"))
 
-    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        # Приветственное сообщение и кнопки для старта теста
+
+
+    async def show_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Показывает меню с опциями"""
+        keyboard = [
+            [InlineKeyboardButton("🔄 Начать опрос заново", callback_data="restart")],
+            [InlineKeyboardButton("❌ Отменить опрос", callback_data="cancel_survey")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "📋 Меню бота:\nВыберите действие:",
+            reply_markup=reply_markup
+        )
+
+    async def handle_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Обрабатывает нажатия на кнопки меню"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "restart":
+            user_id = update.effective_user.id
+            
+            # Проверяем, завершил ли пользователь опрос ранее
+            if user_id in self.completed_surveys:
+                await query.edit_message_text(
+                    "Вы уже завершили опрос. Наш специалист свяжется с вами в ближайшее время."
+                )
+                return ConversationHandler.END
+            
+            # Очищаем старые ответы пользователя
+            if user_id in self.user_answers:
+                del self.user_answers[user_id]
+            
+            # Начинаем опрос заново - показываем приветственное сообщение
+            await self.show_welcome_message(update, context)
+            # Возвращаемся к начальному состоянию ConversationHandler
+            return ConversationHandler.END
+        
+        elif query.data == "cancel_survey":
+            # Отменяем опрос
+            user_id = update.effective_user.id
+            if user_id in self.user_answers:
+                del self.user_answers[user_id]
+            
+            await query.edit_message_text("❌ Опрос отменен. Нажмите /start для начала нового опроса.")
+            return ConversationHandler.END
+        
+        return ConversationHandler.END
+
+
+
+    async def show_welcome_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Показывает приветственное сообщение с картинкой и кнопкой начала теста"""
         keyboard = [
             [InlineKeyboardButton("Начать тест", callback_data="start_test")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         image_path = Path("photo/car.jpg")
-        photo = str(image_path)  # если файл сохранён локально
+        photo = str(image_path)
 
+        # Отправка фото
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=photo,
+        )
+
+        # Отправка приветственного сообщения с кнопкой
+        if update.callback_query:
+            await update.callback_query.message.reply_text(
+                "Добро пожаловать в авто-опросник!\nЧтобы лучшим образом подобрать для вас автомобиль из Южной Кореи, пожалуйста ответьте на 6 коротких вопросов.\nЧтобы начать, нажмите 'Начать тест' в диалоговом окне.",
+                reply_markup=reply_markup,
+            )
+        else:
+            await update.message.reply_text(
+                "Добро пожаловать в авто-опросник!\nЧтобы лучшим образом подобрать для вас автомобиль из Южной Кореи, пожалуйста ответьте на 6 коротких вопросов.\nЧтобы начать, нажмите 'Начать тест' в диалоговом окне.",
+                reply_markup=reply_markup,
+            )
+
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
+
+        # Проверяем, завершил ли пользователь опрос ранее
+        if user_id in self.completed_surveys:
+            await update.message.reply_text(
+                "Вы уже завершили опрос. Наш специалист свяжется с вами в ближайшее время."
+            )
+            return ConversationHandler.END
 
         if user_id in self.user_answers:
             if len(self.user_answers[user_id]) < len(QUESTIONS):
@@ -223,18 +306,11 @@ class CarBot:
                     f"Спасибо, что прошли опрос, наш специалист свяжется с вами!"
                 )
                 return ConversationHandler.END
-        # Отправка фото с подписью и клавиатурой
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
-            photo=photo,
-            # caption="Добро пожаловать в авто-опросник!",
-            # reply_markup=reply_markup
-        )
-
-        await update.message.reply_text(
-            "Добро пожаловать в авто-опросник!\nЧтобы лучшим образом подобрать для вас автомобиль из Южной Кореи, пожалуйста ответьте на 6 коротких вопросов.\nЧтобы начать, нажмите 'Начать тест' в диалоговом окне.",
-            reply_markup=reply_markup,
-        )
+        
+        # Показываем приветственное сообщение
+        await self.show_welcome_message(update, context)
+        
+        return ConversationHandler.END
 
     async def start_test(
         self,
@@ -242,7 +318,19 @@ class CarBot:
         context: ContextTypes.DEFAULT_TYPE,
     ) -> int:
         # Начало теста: очистка старых данных и первый вопрос
-        self.user_answers.clear()
+        user_id = update.effective_user.id
+        
+        # Проверяем, завершил ли пользователь опрос ранее
+        if user_id in self.completed_surveys:
+            await update.callback_query.message.edit_text(
+                "Вы уже завершили опрос. Наш специалист свяжется с вами в ближайшее время."
+            )
+            return ConversationHandler.END
+        
+        # Очищаем старые ответы пользователя
+        if user_id in self.user_answers:
+            del self.user_answers[user_id]
+        
         question_text, _ = QUESTIONS[0]
         await update.callback_query.message.edit_text(f"🎯 {question_text}")
         await self.send_buttons(update, 0)
@@ -370,6 +458,13 @@ class CarBot:
                 custom_fields=custom_fields_data,  #: dict[int, Union[str, int, list[str]]]
             )
 
+            # Добавляем пользователя в множество завершенных опросов
+            self.completed_surveys.add(user_id)
+            
+            # Удаляем ответы пользователя после успешной отправки в CRM
+            if user_id in self.user_answers:
+                del self.user_answers[user_id]
+
             return ConversationHandler.END
         else:
             await update.message.reply_text(
@@ -379,6 +474,10 @@ class CarBot:
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("Опрос отменен.")
+        user_id = update.effective_user.id
+        if user_id in self.user_answers:
+            self.user_answers.pop(user_id)
+        # Не удаляем из completed_surveys, если пользователь уже завершил опрос
         return ConversationHandler.END
 
     # async def send_to_crm(
