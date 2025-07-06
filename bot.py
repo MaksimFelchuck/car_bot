@@ -215,11 +215,14 @@ class CarBot:
         user_id = update.effective_user.id
 
         if user_id in self.user_answers:
-            # Здесь можно отправить данные в CRM
-            await update.message.reply_text(
-                f"Спасибо, что прошли опрос, наш специалист свяжется с вами!"
-            )
-            return ConversationHandler.END
+            if len(self.user_answers[user_id]) < len(QUESTIONS):
+                pass
+            else:
+                # Здесь можно отправить данные в CRM
+                await update.message.reply_text(
+                    f"Спасибо, что прошли опрос, наш специалист свяжется с вами!"
+                )
+                return ConversationHandler.END
         # Отправка фото с подписью и клавиатурой
         await context.bot.send_photo(
             chat_id=update.effective_chat.id,
